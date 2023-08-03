@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>지도</title>
+    <!-- Leaflet CSS 파일 -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map-container {
+            position: relative;
+            width: 100%;
+            height: 800px;
+        }
+        #zoom-buttons {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+        .zoom-button {
+            margin-bottom: 5px;
+            padding: 5px 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+         /* Style for the popup */
+         .popup {
+            position: absolute;
+            background-color: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            z-index: 1000;
+        }
+        .popup-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            border: 1px solid #ccc;
+            padding: 20px;
+            z-index: 1000;
+            display: none;
+        }
+        .popup-container input {
+            display: block;
+            margin-bottom: 10px;
+        }
+        .popup-container button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        } /* 지도에 표시되는 커스텀 마커 스타일 */
+        .custom-marker {
+            width: 32px;
+            height: 32px;
+            background-image: url('https://img.freepik.com/free-icon/pointer_318-350605.jpg');
+            background-size: cover;
+            cursor: pointer;
+        }
+
+        /* 팝업 스타일 */
+        .leaflet-popup-content-wrapper {
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .leaflet-popup-content h3 {
+            margin: 0;
+        }
+
+        .leaflet-popup-content p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 지도를 표시할 영역 -->
+    <div id="map-container">
+        <div id="zoom-buttons">
+            <div class="zoom-button" id="zoom-in">+</div>
+            <div class="zoom-button" id="zoom-out">-</div>
+        </div>
+    </div>
+
+    <!-- 장소 정보 입력 팝업 -->
+<div class="popup-container" id="place-info-popup">
+  <input type="hidden" id="mipmap-level">
+  <input type="hidden" id="mipmap-index">
+  <input type="hidden" id="x">
+  <input type="hidden" id="y">
+  <input type="text" id="place-number" placeholder="장소 번호">
+  <input type="text" id="place-name" placeholder="장소 이름">
+  <input type="text" id="place-description" placeholder="장소 설명">
+  <button id="save-place-btn" onclick="savePlace()">저장</button>
+</div>
+
+      
+    <!-- Leaflet JavaScript 파일 -->
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <!-- 맵 스크립트를 불러옴 -->
+    <script src="{{ url_for('static', filename='map_script.js') }}"></script>
+    <script>
+
+      // 저장되어 있는 밉맵 레벨과 밉맵 인덱스를 가져옵니다.
+var storedMipmapLevel = localStorage.getItem('storedMipmapLevel');
+var storedMipmapIndex = localStorage.getItem('storedMipmapIndex');
+     function savePlaceToServer(mipmapLevel, mipmapIndex, x, y, placeName, placeDescription, placeNumber) {
+      
+    fetch('/save_place', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        // 여기서도 픽셀 좌표로 수정
+        body: new URLSearchParams({
+            'mipmap_level': mipmapLevel,
+            'mipmap_index': mipmapIndex,
+            'x': x,
+            'y': y,
+            'place_name': placeName,
+            'place_description': placeDescription,
+            'place_number': placeNumber
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+    if (data.message === 'Place number already exists.') {
+      alert('이미 존재하는 장소 번호입니다. 다른 번호를 입력해주세요.');
+    } else if (data.message === 'Place information saved successfully.') {
+      alert('장소 정보가 성공적으로 저장되었습니다.');
+    } else {
+      alert('장소 정보 저장에 실패하였습니다.');
+    }
+        // 페이지를 새로고침하여 수정된 내용을 반영합니다.
+   window.location.reload();
+    })
+    .catch(error => {
+        console.error('Error saving place information:', error);
+    });
+}
+
+
+  
+ 
+      // 클릭 이벤트 리스너 등록
+       map.on('click', function (e) {
+            // 밉맵 레벨이 2일 때만 동작하도록 조건 추가
+            if (currentMipmapLevel === 2) {
+                // 클릭한 위치 좌표 (픽셀 좌표)
+                var x = e.originalEvent.clientX;
+                var y = e.originalEvent.clientY;
+                
+                // 장소 정보 입력 팝업을 보이도록 함
+                var popupContainer = document.getElementById('place-info-popup');
+                popupContainer.style.display = 'block';
+
+                // 팝업 위치를 클릭한 위치에 맞춤
+                popupContainer.style.left = x + 'px';
+                popupContainer.style.top = y + 'px';
+          // 팝업 내의 입력 필드
+          var placeNameInput = document.getElementById('place-name');
+          var placeDescriptionInput = document.getElementById('place-description');
+          var placeNumberInput = document.getElementById('place-number')
+      
+          // 저장 버튼 클릭 이벤트 리스너 등록
+var savePlaceBtn = document.getElementById('save-place-btn');
+savePlaceBtn.addEventListener('click', function () {
+  var placeNumberInput = document.getElementById('place-number');
+  var placeNumber = placeNumberInput.value;
+
+ // 번호가 숫자인지와 4자리인지 확인
+ if (!(/^\d{4}$/.test(placeNumber))) {
+    alert('장소 번호는 숫자로 이루어진 4자리여야 합니다.');
+    return;
+  }savePlace(e);
+
+             // 밉맵 레벨과 밉맵 인덱스를 저장합니다.
+    localStorage.setItem('storedMipmapLevel', currentMipmapLevel);
+    localStorage.setItem('storedMipmapIndex', currentMipmapIndex);
+
+              // 입력한 장소 정보 가져오기
+              var placeName = placeNameInput.value;
+              var placeDescription = placeDescriptionInput.value;
+              var placeNumber = placeNumberInput.value;
+      
+             
+      
+             
+      
+              // 입력 필드 초기화
+              placeNameInput.value = '';
+              placeDescriptionInput.value = '';
+              placeNumberInput.value='';
+          });
+        }
+      });
+      function savePlace(e) {
+  var mipmapLevel = currentMipmapLevel;
+  var mipmapIndex = currentMipmapIndex;
+  var x = e.originalEvent.clientX;
+  var y = e.originalEvent.clientY;
+    var placeName = document.getElementById('place-name').value;
+    var placeDescription = document.getElementById('place-description').value;
+    var placeNumber = document.getElementById('place-number').value;
+
+    savePlaceToServer(mipmapLevel, mipmapIndex, x, y, placeName, placeDescription, placeNumber);
+}
+
+      map.on('contextmenu', function (e) {
+  // 레벨 0일 때는 더 이상 밉맵 레벨을 감소시키지 않음
+  if (currentMipmapLevel === 0) {
+    return;
+  }
+
+  // 밉맵 레벨 감소
+  var newMipmapLevel = currentMipmapLevel - 1;
+
+  // 하위 구역 이미지 인덱스 계산
+  var subMipmapIndex = Math.floor(currentMipmapIndex / 4);
+
+  // 밉맵 이미지 변경
+  addMipmapLayer(newMipmapLevel, subMipmapIndex);
+  var popupContainer = document.getElementById('place-info-popup');
+          popupContainer.style.display = 'none';
+});
+// 축소 버튼 클릭 이벤트 리스너 등록
+document.getElementById('zoom-out').addEventListener('click', function(event) {
+            event.stopPropagation(); // 이벤트 전파 막음
+            // 레벨 0일 때는 더 이상 밉맵 레벨을 감소시키지 않음
+            if (currentMipmapLevel === 0) {
+                return;
+            }
+
+            // 밉맵 레벨 감소
+            var newMipmapLevel = currentMipmapLevel - 1;
+
+            // 하위 구역 이미지 인덱스 계산
+            var subMipmapIndex = Math.floor(currentMipmapIndex / 4);
+
+            // 밉맵 이미지 변경
+            addMipmapLayer(newMipmapLevel, subMipmapIndex);
+            var popupContainer = document.getElementById('place-info-popup');
+            popupContainer.style.display = 'none';
+        });
+
+// 말풍선(팝업)을 표시하는 함수
+function showPopupOnImage(x, y, name, description, number) {
+  // x와 y 좌표를 기반으로 해당 위치에 커스텀 마커를 생성합니다.
+  
+  var marker = L.marker(map.containerPointToLatLng([x, y]), {
+      icon: L.divIcon({
+          className: 'custom-marker',
+          iconSize: [32, 32],
+      }),
+      riseOnHover: true,
+  }).addTo(map);
+
+
+        // 마커 클릭 이벤트 리스너 등록
+marker.on('click', function () {
+  // 클릭 시 팝업(말풍선)을 열어서 name과 description을 보여줍니다.
+  var popupContent = `
+  <p>번호: ${number}</p>
+    <p>이름: ${name}</p>
+    <p>설명: ${description}</p>
+    
+    <button onclick="showEditButtons()">수정</button>
+    <button onclick="deleteMarker()">삭제</button>
+  `;
+  var popup = L.popup()
+    .setLatLng(marker.getLatLng())
+    .setContent(popupContent)
+    .openOn(map);
+
+    
+      // 선택된 마커를 변수에 저장합니다.
+      selectedMarker = marker;
+      selectedMarkerID = number;
+});
+}
+    </script>
+
+<!-- 스크립트 섹션에 다음 코드를 추가하세요 -->
+<script>
+  var selectedMarker; // 클라이언트 측에서 선택된 마커를 저장하는 변수
+
+  function showEditButtons() {
+    // 편집 폼을 표시합니다.
+    var popupContent = `
+      <h3>수정</h3>
+      <input type="text" id="edit-place-number" placeholder="새로운 장소 번호">
+      <input type="text" id="edit-place-name" placeholder="새로운 장소 이름">
+      <input type="text" id="edit-place-description" placeholder="새로운 장소 설명">
+      <button onclick="saveEditedPlace()">저장</button>
+    `;
+
+    // 현재 선택된 마커의 팝업 내용을 변경하여 편집 폼을 표시합니다.
+    var popup = L.popup()
+      .setContent(popupContent)
+      .setLatLng(selectedMarker.getLatLng())
+      .openOn(map);
+
+      
+
+  }
+
+  function saveEditedPlace() {
+  // 편집된 정보를 가져옵니다.
+  var originalNumber = selectedMarkerID; // 현재 선택된 마커의 원래 번호
+  var newNumber = document.getElementById('edit-place-number').value;
+  var newName = document.getElementById('edit-place-name').value;
+  var newDescription = document.getElementById('edit-place-description').value;
+
+  // 번호가 숫자인지와 4자리인지 확인
+  if (!(/^\d{4}$/.test(newNumber))) {
+    alert('새로운 장소 번호는 숫자로 이루어진 4자리여야 합니다.');
+    return;
+  }
+
+  // 서버에 편집된 정보를 보내고 데이터베이스를 업데이트합니다.
+  fetch('/edit_place', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({
+      'original_number': originalNumber,
+      'new_number': newNumber,
+      'place_name': newName,
+      'place_description': newDescription
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log(data.message); // 서버로부터의 응답 메시지 출력 (테스트용)
+
+
+    // 페이지를 새로고침하여 수정된 내용을 반영합니다.
+   window.location.reload();
+   
+  })
+  .catch(error => {
+    console.error('Error saving edited place information:', error);
+  });
+
+  
+}
+
+
+  function deleteMarker() {
+    // 서버에 선택된 마커의 ID를 보내고 데이터베이스에서 해당 마커를 삭제합니다.
+    fetch('/delete_place', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        'id': selectedMarkerID
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log(data.message); // 서버로부터의 응답 메시지 출력 (테스트용)
+
+      // 선택된 마커를 지도에서 제거합니다.
+      map.removeLayer(selectedMarker);
+
+      // 페이지를 새로고침하여 수정된 내용을 반영합니다.
+   window.location.reload();
+    })
+    .catch(error => {
+      console.error('Error deleting marker:', error);
+    });
+  }
+
+  
+</script>
+
+
+    
+</body>
+</html>
